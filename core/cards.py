@@ -311,10 +311,43 @@ def card_pdf(card: Image.Image, width_mm: float = CARD_MM[0]) -> bytes:
     return doc.tobytes(deflate=True)
 
 
-def card_png(card: Image.Image) -> bytes:
+def print_dpi(card: Image.Image, width_mm: float | None = None) -> int:
+    """Resolution the card has when printed at width_mm (e.g. 1294 px over 54 mm = 609 dpi)."""
+    if not width_mm:
+        return DPI
+    return max(72, round(card.width / (width_mm / 25.4)))
+
+
+def card_png(card: Image.Image, width_mm: float | None = None) -> bytes:
+    """Full-resolution PNG. The dpi tag makes print software open it at the real card size."""
     buf = io.BytesIO()
-    card.save(buf, format="PNG", dpi=(DPI, DPI))
+    d = print_dpi(card, width_mm)
+    card.save(buf, format="PNG", dpi=(d, d))
     return buf.getvalue()
+
+
+class SinglePages:
+    """One card per page, page = exact card size (for printing agencies to impose as they like)."""
+
+    PT = 72 / 25.4
+
+    def __init__(self, width_mm: float = CARD_MM[0]):
+        self.width_mm = width_mm
+        self.doc = pymupdf.open()
+
+    def add(self, card: Image.Image) -> None:
+        w = self.width_mm * self.PT
+        h = w * card.height / card.width
+        page = self.doc.new_page(width=w, height=h)
+        buf = io.BytesIO()
+        d = print_dpi(card, self.width_mm)
+        card.convert("RGB").save(buf, format="JPEG", quality=95, subsampling=0, dpi=(d, d))
+        page.insert_image(page.rect, stream=buf.getvalue())
+
+    def tobytes(self) -> bytes:
+        if self.doc.page_count == 0:
+            self.doc.new_page()
+        return self.doc.tobytes(deflate=True)
 
 
 # ------------------------------------------------------------------ A4 print sheets

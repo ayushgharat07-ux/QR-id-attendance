@@ -3,7 +3,7 @@ import zipfile
 
 import streamlit as st
 
-from core import cards, exports, photo, qr, repo, ui
+from core import card_exports, cards, exports, photo, qr, repo, ui
 from core import db as dbm
 from core.ctx import ctx, require_admin
 
@@ -115,30 +115,30 @@ with generate_tab:
     rng = st.select_slider("ID range", options=pids, value=(pids[0], pids[-1])) if len(pids) > 1 else (pids[0], pids[0])
     chosen = pool[pids.index(rng[0]):pids.index(rng[1]) + 1]
     no_photo = [p for p in chosen if not p.get("photo_id")]
+    sample_card = ui.render_card(chosen[0], event)
+    dpi = cards.print_dpi(sample_card, width_mm)
     st.caption(f"{len(chosen)} card(s) selected · {len(no_photo)} without photo (printed with the design's "
-               "placeholder) · Print the PDF at 100% / Actual size.")
+               f"placeholder) · {sample_card.width}×{sample_card.height} px = {dpi} dpi at {width_mm:g} mm wide.")
 
-    if st.button("🖨️ Generate cards", type="primary"):
-        bar = st.progress(0.0)
-        sheets = cards.PrintSheets(width_mm=width_mm)
-        singles, qrs = io.BytesIO(), io.BytesIO()
-        with zipfile.ZipFile(singles, "w", zipfile.ZIP_STORED) as zs, zipfile.ZipFile(qrs, "w") as zq:
-            for i, p in enumerate(chosen, start=1):
-                card = ui.render_card(p, event)
-                sheets.add(card)
-                base = exports.photo_filename(p)[:-4]
-                zs.writestr(f"{base}.pdf", cards.card_pdf(card, width_mm))
-                zq.writestr(f"{base}_QR.png", qr.qr_png(qr.make_payload(event["_id"], p["pid"])))
-                bar.progress(i / len(chosen), text=f"Rendering {i}/{len(chosen)}")
-        st.session_state["cards_out"] = {
-            "name": f"{event['_id']}_{rng[0]}_to_{rng[1]}",
-            "pdf": sheets.tobytes(), "singles": singles.getvalue(), "qrs": qrs.getvalue()}
-        bar.empty()
-    if out := st.session_state.get("cards_out"):
-        d1, d2, d3 = st.columns(3)
-        d1.download_button("⬇️ Print sheets (A4 PDF)", out["pdf"], f"{out['name']}_A4.pdf", "application/pdf",
-                           type="primary", use_container_width=True)
-        d2.download_button("⬇️ One PDF per member (ZIP)", out["singles"], f"{out['name']}_cards.zip",
-                           "application/zip", use_container_width=True)
-        d3.download_button("⬇️ QR codes only (ZIP)", out["qrs"], f"{out['name']}_qr.zip", "application/zip",
-                           use_container_width=True)
+    # Files are built when a button is clicked (big batches take ~1 minute; the download starts when ready).
+    name = f"{event['_id']}_{rng[0]}_to_{rng[1]}"
+    db, ev, sel, w = c.db, dict(event), list(chosen), float(width_mm)
+    st.markdown("**For the printing agency**")
+    a1, a2 = st.columns(2)
+    a1.download_button("📄 One card per page (PDF)", lambda: card_exports.one_per_page_pdf(db, ev, sel, w),
+                       f"{name}_one_per_page.pdf", "application/pdf", type="primary", on_click="ignore",
+                       use_container_width=True, help="Each page is exactly one card at true size; "
+                                                      "the agency arranges them on their own sheets.")
+    a2.download_button("🖼️ Card images (PNG ZIP)", lambda: card_exports.png_zip(db, ev, sel, w),
+                       f"{name}_png.zip", "application/zip", type="primary", on_click="ignore",
+                       use_container_width=True, help="Full-resolution PNG per member, named ID_Name.png.")
+    st.markdown("**Print yourself / extras**")
+    b1, b2 = st.columns(2)
+    b1.download_button("🗂️ 9 cards per A4 (PDF)", lambda: card_exports.a4_pdf(db, ev, sel, w),
+                       f"{name}_A4.pdf", "application/pdf", on_click="ignore", use_container_width=True,
+                       help="Print at 100% / Actual size; cut along the grey lines.")
+    b2.download_button("🔳 QR codes only (ZIP)", lambda: card_exports.qr_zip(ev, sel),
+                       f"{name}_qr.zip", "application/zip", on_click="ignore", use_container_width=True)
+    if len(chosen) > 120:
+        st.caption(f"Tip: {len(chosen)} cards make a large download (PNG ZIP ≈ {len(chosen) * 0.6:.0f} MB). "
+                   "If it is slow, download in two parts using the ID range above.")

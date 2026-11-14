@@ -250,3 +250,28 @@ def test_clear_checkins_and_delete_event_touch_only_that_event(db, event):
     assert dbm.get_file(real["photo_id"], db) is not None                           # other event's photo kept
     assert repo.get_person(db, real["_id"]) and db.attendance.count_documents({}) == 1
     assert not db.counters.find_one({"_id": {"$regex": "^test-event:"}})
+
+
+# ---------------------------------------------------------------- downloads for the printing agency
+def test_card_downloads_for_printing_agency(db, event):
+    import zipfile
+
+    import pymupdf
+
+    from core import card_exports
+
+    people = [_member(db, event, f"श्री. सदस्य {i}", f"Mr. Member {i}", f"90000000{i:02d}", photo=(i == 1))
+              for i in range(1, 4)]
+    ev = repo.get_event(db, event["_id"])  # Business Camp badge (1294x2000)
+    pdf = pymupdf.open(stream=card_exports.one_per_page_pdf(db, ev, people, 54), filetype="pdf")
+    assert pdf.page_count == 3
+    w_mm, h_mm = (round(pdf[0].rect.width / 72 * 25.4, 1), round(pdf[0].rect.height / 72 * 25.4, 1))
+    assert (w_mm, h_mm) == (54.0, 83.5)                       # one card, true size, design proportions
+    z = zipfile.ZipFile(io.BytesIO(card_exports.png_zip(db, ev, people, 54)))
+    names = sorted(z.namelist())
+    assert names == ["TH26-A-0001_Member-1.png", "TH26-A-0002_Member-2.png", "TH26-A-0003_Member-3.png"]
+    png = Image.open(io.BytesIO(z.read(names[0])))
+    assert png.size == (1294, 2000) and round(png.info["dpi"][0]) == 609   # 1294 px over 54 mm
+    a4 = pymupdf.open(stream=card_exports.a4_pdf(db, ev, people, 54), filetype="pdf")
+    assert a4.page_count == 1 and round(a4[0].rect.width / 72 * 25.4) == 210
+    assert len(zipfile.ZipFile(io.BytesIO(card_exports.qr_zip(ev, people))).namelist()) == 3

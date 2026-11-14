@@ -82,7 +82,7 @@ def excel_bytes(event: dict, people: list[dict], attendance: list[dict]) -> byte
 
 
 def safe_name(text: str) -> str:
-    text = re.sub(r"^(shri|shree|smt|sau|kum)\.?\s+", "", (text or "").strip(), flags=re.I)
+    text = re.sub(r"^(shri|shree|smt|sau|kum|kumari|kumar|mr|mrs|ms|miss|dr)(\.\s*|\s+)", "", (text or "").strip(), flags=re.I)
     text = re.sub(r"[^A-Za-z0-9]+", "-", text).strip("-")
     return text[:60] or "person"
 
