@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.streamlit/secrets.toml
+# Personal data: never commit real forms, photos or exports
+samples/
+exports/
+*.xlsx
+*.zip
+# Loose copies of user files in the project root (the badge design lives in assets/templates/)
+/Editable_Single_ID_Badge_Canva*.png

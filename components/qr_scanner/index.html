@@ -1,0 +1,109 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  body { margin:0; font-family: system-ui, sans-serif; background: transparent; }
+  #wrap { position: relative; max-width: 520px; margin: 0 auto; border-radius: 14px; overflow: hidden; background:#0d1b2a; }
+  #reader { width: 100%; }
+  #reader video { object-fit: cover; }
+  #flash { position:absolute; inset:0; display:none; align-items:center; justify-content:center;
+           font-size: 64px; color:#fff; font-weight:800; }
+  #msg { text-align:center; padding:8px; color:#1B3A5C; font-size:14px; }
+  button { background:#E8735A; color:#fff; border:0; border-radius:10px; padding:10px 18px; font-size:16px; margin:6px; }
+  #controls { text-align:center; }
+</style>
+</head>
+<body>
+<div id="wrap"><div id="reader"></div><div id="flash"></div></div>
+<div id="controls">
+  <button id="startBtn" style="display:none">▶ Start camera</button>
+  <button id="switchBtn" style="display:none">🔄 Switch camera</button>
+</div>
+<div id="msg">Starting camera…</div>
+<script>
+// --- minimal Streamlit component protocol (no build step) ---
+function send(type, data) { window.parent.postMessage(Object.assign({isStreamlitMessage: true, type: type}, data), "*"); }
+function setHeight() { send("streamlit:setFrameHeight", {height: document.body.scrollHeight + 10}); }
+function setValue(v) { send("streamlit:setComponentValue", {value: v, dataType: "json"}); }
+
+let lastCode = null, lastAt = 0, paused = false, lastResultId = null;
+let cams = [], camIdx = 0, scanner = null;
+const msg = document.getElementById("msg");
+const flash = document.getElementById("flash");
+
+function beep(freq, ms) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.frequency.value = freq; o.connect(g); g.connect(ctx.destination);
+    g.gain.value = 0.15; o.start(); setTimeout(() => { o.stop(); ctx.close(); }, ms);
+  } catch (e) {}
+}
+
+function showResult(r) {
+  if (!r || r.id === lastResultId) return;
+  lastResultId = r.id;
+  const colors = {ok: "rgba(31,157,85,.85)", warn: "rgba(214,158,46,.88)", bad: "rgba(197,48,48,.88)"};
+  const icons = {ok: "✓", warn: "!", bad: "✕"};
+  flash.style.background = colors[r.status] || colors.bad;
+  flash.textContent = icons[r.status] || "✕";
+  flash.style.display = "flex";
+  if (r.status === "ok") { beep(1200, 120); if (navigator.vibrate) navigator.vibrate(120); }
+  else { beep(300, 350); if (navigator.vibrate) navigator.vibrate([100, 80, 100]); }
+  setTimeout(() => { flash.style.display = "none"; }, 1200);
+}
+
+function onScan(text) {
+  const t = Date.now();
+  if (paused) return;
+  if (text === lastCode && t - lastAt < 4000) return;   // same card held in front of camera
+  lastCode = text; lastAt = t; paused = true;
+  setTimeout(() => { paused = false; }, 1500);
+  setValue({code: text, ts: t});
+}
+
+async function start() {
+  document.getElementById("startBtn").style.display = "none";
+  try {
+    if (!scanner) scanner = new Html5Qrcode("reader", {verbose: false});
+    if (!cams.length) {
+      cams = await Html5Qrcode.getCameras();
+      const back = cams.findIndex(c => /back|rear|environment/i.test(c.label));
+      camIdx = back >= 0 ? back : cams.length - 1;
+    }
+    const camera = cams.length ? {deviceId: {exact: cams[camIdx].id}} : {facingMode: "environment"};
+    await scanner.start(camera, {fps: 12, qrbox: (w, h) => { const s = Math.floor(Math.min(w, h) * 0.7); return {width: s, height: s}; }},
+                        onScan, () => {});
+    msg.textContent = "Point the camera at the QR code on the ID card";
+    if (cams.length > 1) document.getElementById("switchBtn").style.display = "inline-block";
+  } catch (e) {
+    msg.textContent = "Camera not available: " + e + ". Allow camera permission and tap Start.";
+    document.getElementById("startBtn").style.display = "inline-block";
+  }
+  setHeight();
+}
+
+document.getElementById("startBtn").onclick = start;
+document.getElementById("switchBtn").onclick = async () => {
+  if (!cams.length) return;
+  camIdx = (camIdx + 1) % cams.length;
+  try { await scanner.stop(); } catch (e) {}
+  start();
+};
+
+let started = false;
+window.addEventListener("message", (ev) => {
+  if (!ev.data || ev.data.type !== "streamlit:render") return;
+  const args = ev.data.args || {};
+  if (!started) { started = true; start(); }
+  showResult(args.result);
+  setHeight();
+});
+send("streamlit:componentReady", {apiVersion: 1});
+new ResizeObserver(setHeight).observe(document.body);
+</script>
+</body>
+</html>
