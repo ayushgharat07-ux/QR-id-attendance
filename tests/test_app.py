@@ -118,3 +118,28 @@ def test_volunteer_sees_only_scan_and_dashboard(db, event):
     at.run()
     assert not at.exception
     assert any("हजेरी" in s.value or "Scan" in s.value for s in at.subheader)
+
+
+def test_missing_settings_show_setup_page_not_crash(monkeypatch):
+    from core import db as dbm
+
+    dbm.set_db_for_tests(None)
+    for k in ("MONGO_URI", "MONGODB_URI", "QR_SECRET"):
+        monkeypatch.setenv(k, "")
+    at = AppTest.from_file(str(ROOT / "app.py"), default_timeout=60)
+    at.run()
+    assert not at.exception
+    text = " ".join(e.value for e in at.error)
+    assert "Setup needed" in text and "MONGO_URI" in text and "QR_SECRET" in text
+
+
+def test_settings_found_even_under_a_section(monkeypatch):
+    monkeypatch.delenv("QR_SECRET", raising=False)
+    at = AppTest.from_string("""
+import streamlit as st
+from core.config import secret
+st.write(secret("QR_SECRET") or "missing")
+""", default_timeout=30)
+    at.secrets["auth"] = {"client_id": "", "QR_SECRET": "pasted-under-auth"}
+    at.run()
+    assert at.markdown[0].value == "pasted-under-auth"

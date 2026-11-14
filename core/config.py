@@ -25,7 +25,9 @@ SILVER = "#A7B1BC"
 
 
 def secret(key: str, default: Any = None) -> Any:
-    """Read a setting: environment variable first (overrides), then st.secrets."""
+    """Read a setting: environment variable first (overrides), then st.secrets.
+    App settings are top-level keys; if one was pasted below a [section] header by mistake,
+    it is still found there (sections like [auth] use different key names)."""
     if key in os.environ:
         return os.environ[key]
     try:
@@ -33,9 +35,30 @@ def secret(key: str, default: Any = None) -> Any:
 
         if key in st.secrets:
             return st.secrets[key]
+        for section in st.secrets.values():
+            if hasattr(section, "keys") and key in section:
+                return section[key]
     except Exception:  # no secrets.toml, or not running under Streamlit
         pass
     return default
+
+
+REQUIRED_SETTINGS = {
+    "MONGO_URI": "MongoDB Atlas connection address (also accepted as MONGODB_URI)",
+    "QR_SECRET": "long random text that signs the QR codes",
+}
+
+
+def missing_settings(skip: tuple[str, ...] = ()) -> list[tuple[str, str]]:
+    """Required settings that are not configured (names only, never values)."""
+    out = []
+    for key, what in REQUIRED_SETTINGS.items():
+        if key in skip:
+            continue
+        value = secret(key) or (secret("MONGODB_URI") if key == "MONGO_URI" else None)
+        if not value:
+            out.append((key, what))
+    return out
 
 
 def secret_section(name: str) -> dict:

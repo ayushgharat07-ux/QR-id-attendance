@@ -30,6 +30,10 @@ def set_db_for_tests(db: Database | None) -> None:
     _db_override = db
 
 
+def has_db_override() -> bool:
+    return _db_override is not None
+
+
 def get_db() -> Database:
     if _db_override is not None:
         return _db_override

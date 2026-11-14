@@ -5,8 +5,8 @@ import streamlit as st
 from PIL import Image
 
 from core import auth, branding, gsheets, repo
-from core.config import LOGO_MARK
-from core.db import get_db
+from core.config import LOGO_MARK, missing_settings
+from core.db import get_db, has_db_override
 
 st.set_page_config(
     page_title="Event Attendance",
@@ -48,6 +48,15 @@ st.iframe(
     </script>""",
     height=1,
 )
+
+if missing := missing_settings(skip=("MONGO_URI",) if has_db_override() else ()):
+    branding.header(None)
+    st.error("**Setup needed** — these settings are missing from the app's secrets:\n\n"
+             + "\n".join(f"- `{k}` — {what}" for k, what in missing)
+             + "\n\nOn Streamlit Cloud: **Manage app → ⋮ → Settings → Secrets**. Put each setting at the **top**, "
+               "above any `[section]` line, e.g. `QR_SECRET = \"...\"`, then **Save**.")
+    branding.footer()
+    st.stop()
 
 db = get_db()
 repo.ensure_default_event(db)
